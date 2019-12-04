@@ -4,7 +4,7 @@ from torch import optim
 import torch.nn.functional as F
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
+device = 'cuda'        
 
 class CommandScorer(nn.Module):
     def __init__(self, input_size, hidden_size):
@@ -49,7 +49,7 @@ class CommandScorer(nn.Module):
 
         probs = F.softmax(scores, dim=2)  # 1 x Batch x cmds
         index = probs[0].multinomial(num_samples=1).unsqueeze(0) # 1 x batch x indx
-        return scores, index, value
+        return scores, index, value, probs
 
     def reset_hidden(self, batch_size):
         self.state_hidden = torch.zeros(1, batch_size, self.hidden_size, device=device)

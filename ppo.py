@@ -22,7 +22,6 @@ import torch.nn.functional as F
 UPDATE_FREQ=4
 
 
-
 def play(agent, path, max_step=100, nb_episodes=10, verbose=True):
     infos_to_request = agent.infos_to_request
     infos_to_request.max_score = True  # Needed to normalize the scores.
@@ -45,6 +44,7 @@ def play(agent, path, max_step=100, nb_episodes=10, verbose=True):
     
     replay_buffer = []
 
+    avg_score = list()
     for no_episode in range(nb_episodes):
         # obs, info, action_id, reward
         episode = []
@@ -52,15 +52,27 @@ def play(agent, path, max_step=100, nb_episodes=10, verbose=True):
         score = 0
         done = False
         nb_moves = 0
-        while not done:
-            
-            command = agent.act(obs, score, done, infos)
-            print(command)
+        max_score = 0
+        while not done: 
+            command, command_id, prob, values = agent.act(obs, score, done, infos)
+            episode.append({'obs':obs, 'infos':infos, 'command_id':command_id, 'prob':prob, 'values':values})
+            last_score = score
             obs, score, done, infos = env.step(command)
+            max_score = max(max_score, score)
+            reward = score-last_score
+            if 'won' in infos:
+                reward += 100
+            elif 'lost' in infos:
+                reward -= 100
+            episode[-1]['reward'] = reward
             nb_moves += 1
-        
+        replay_buffer.append(episode)
+        avg_score.append(max_score)
         agent.act(obs, score, done, infos)  # Let the agent know the game is done.
-        
+        print('ep:{}\tlen:{}\tmax_score:{}\tavg_score:{}\tlast_score:{}'.format(no_episode, len(episode), max_score, sum(avg_score)/len(avg_score), score))
+        if (no_episode+1)%UPDATE_FREQ == 0:
+            agent.apply_updates(replay_buffer)
+            replay_buffer = []
 
         if verbose:
             print(".", end="")
@@ -77,17 +89,9 @@ def play(agent, path, max_step=100, nb_episodes=10, verbose=True):
             print(msg.format(np.mean(avg_moves), np.mean(avg_scores), infos["max_score"]))
     
 
-
 #play(RandomAgent(), "./games/rewardsDense_goalDetailed.ulx")    # Dense rewards
 #play(RandomAgent(), "./games/rewardsBalanced_goalDetailed.ulx") # Balanced rewards
 #play(RandomAgent(), "./games/rewardsSparse_goalDetailed.ulx")   # Sparse rewards
-
-
-
-
-
-
-
 
 
 from time import time
@@ -96,17 +100,17 @@ agent = NeuralAgent()
 print("Training")
 agent.train()  # Tell the agent it should update its parameters.
 starttime = time()
-#play(agent, "./games/rewardsDense_goalDetailed.ulx", nb_episodes=500, verbose=False)  # Dense rewards game.
+play(agent, "./games/rewardsDense_goalDetailed.ulx", nb_episodes=2000, verbose=False)  # Dense rewards game.
 print("Trained in {:.2f} secs".format(time() - starttime))
 
 
 
 
 # We report the score and steps averaged over 10 playthroughs.
-#agent.test()
-#play(agent, "./games/rewardsDense_goalDetailed.ulx")  # Dense rewards game.
+agent.test()
+play(agent, "./games/rewardsDense_goalDetailed.ulx")  # Dense rewards game.
 
-
+exit(0)
 
 
 os.system('tw-make tw-simple --rewards dense --goal detailed --seed 1 --output games/another_game.ulx -v -f')
