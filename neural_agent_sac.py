@@ -155,7 +155,7 @@ class NeuralAgent:
                 avg_policy_loss.append(policy_loss.item())
                 avg_value_loss.append(value_loss.item())
                 avg_entropy_loss.append((q1_loss+q2_loss).item())
-                loss = -policy_loss + 0.25*value_loss +0.1*q1_loss + 0.1*q2_loss
+                loss = -1*policy_loss + 0.25*value_loss +0.1*q1_loss + 0.1*q2_loss
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.model.parameters(), 40)
                 self.optimizer.step()
