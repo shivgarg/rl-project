@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = 'cpu'
+device = 'cuda'
 
 class NeuralAgent:
     """ Simple Neural Agent for playing TextWorld games. """
@@ -149,13 +149,13 @@ class NeuralAgent:
                     q1_loss += F.mse_loss(step['q1_val'][epi_step['command_id']], value.detach())
                     q2_loss += F.mse_loss(step['q2_val'][epi_step['command_id']], value.detach())
                     for qval, prob_action in zip(step["q1_val"],step["probs"]):
-                        policy_loss += prob_action*(qval - self.ALPHA*torch.log(prob_action))
+                        policy_loss += prob_action*(qval.detach() - self.ALPHA*torch.log(prob_action))
 
                 self.optimizer.zero_grad()
                 avg_policy_loss.append(policy_loss.item())
                 avg_value_loss.append(value_loss.item())
                 avg_entropy_loss.append((q1_loss+q2_loss).item())
-                loss = policy_loss + 0.25*value_loss +0.1*q1_loss + 0.1*q2_loss
+                loss = -policy_loss + 0.25*value_loss +0.1*q1_loss + 0.1*q2_loss
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.model.parameters(), 40)
                 self.optimizer.step()
