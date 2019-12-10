@@ -1,0 +1,3 @@
+torch
+textworld
+gym==0.10.4
