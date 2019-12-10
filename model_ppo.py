@@ -27,6 +27,7 @@ class CommandScorer(nn.Module):
 
         embedded = self.embedding(obs)
         encoder_output, encoder_hidden = self.encoder_gru(embedded)
+        self.reset_hidden(1)
         state_output, state_hidden = self.state_gru(encoder_hidden, self.state_hidden)
         self.state_hidden = state_hidden
         value = self.critic(state_output)

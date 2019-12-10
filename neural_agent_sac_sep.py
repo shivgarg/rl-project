@@ -1,4 +1,4 @@
-from model import CommandScorer
+from model_sac_sep import CommandScorer
 from collections import defaultdict
 import re
 import numpy as np
@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device('cuda')
+device = 'cuda'
 
 class NeuralAgent:
     """ Simple Neural Agent for playing TextWorld games. """
@@ -19,7 +19,7 @@ class NeuralAgent:
     UPDATE_FREQUENCY = 10
     LOG_FREQUENCY = 1000
     GAMMA = 0.9
-    EPS = 0.3
+    ALPHA = 0.2
     
     def __init__(self) -> None:
         self._initialized = False
@@ -28,22 +28,28 @@ class NeuralAgent:
         self.word2id = {w: i for i, w in enumerate(self.id2word)}
         
         self.model = CommandScorer(input_size=self.MAX_VOCAB_SIZE, hidden_size=128).to(device)
+        self.q1 = CommandScorer(input_size=self.MAX_VOCAB_SIZE, hidden_size=128).to(device)
+        self.q2 = CommandScorer(input_size=self.MAX_VOCAB_SIZE, hidden_size=128).to(device)
         self.optimizer = optim.Adam(self.model.parameters(), 0.00003)
-        #self.model_copy = CommandScorer(input_size=self.MAX_VOCAB_SIZE, hidden_size=128)
+        self.optimizer_q1 = optim.Adam(self.q1.parameters(), 0.00003)
+        self.optimizer_q2 = optim.Adam(self.q2.parameters(), 0.00003)
         self.mode = "test"
-        #self.model_copy.load_state_dict(self.model.state_dict())
     
     def train(self):
         self.mode = "train"
         self.stats = {"max": defaultdict(list), "mean": defaultdict(list)}
         self.transitions = []
         self.model.reset_hidden(1)
+        self.q1.reset_hidden(1)
+        self.q2.reset_hidden(1)
         self.last_score = 0
         self.no_train_step = 0
     
     def test(self):
         self.mode = "test"
         self.model.reset_hidden(1)
+        self.q1.reset_hidden(1)
+        self.q2.reset_hidden(1)
         
     @property
     def infos_to_request(self) -> EnvInfos:
@@ -79,15 +85,23 @@ class NeuralAgent:
         return padded_tensor
       
     def _discount_rewards(self, episode):
-        returns, advantages = [], []
+        returns, qvals = [], []
         R = episode[-1]['values']
         for t in reversed(range(len(episode)-1)):
-            R = episode[t]['reward'] + self.GAMMA * R
-            adv = R - episode[t]['values']
+            R = episode[t]['reward'] + self.GAMMA * episode[t+1]['values']
+            q_val = 0
+            q1_val = episode[t]['q1_val']
+            q2_val = episode[t]['q2_val']
+            probs = episode[t]['probs']
+        
+            for i in range(len(probs)):
+                q_val += probs[i]*(torch.min(q1_val[i],q2_val[i]) - self.ALPHA*torch.log(probs[i]))
             returns.append(R)
-            advantages.append(adv)
+            qvals.append(q_val)
             
-        return returns[::-1], advantages[::-1]
+        return returns[::-1], qvals[::-1]
+
+
 
     def act(self, obs: str, score: int, done: bool, infos: Mapping[str, Any]) -> Optional[str]:
         
@@ -99,12 +113,14 @@ class NeuralAgent:
         commands_tensor = self._process(infos["admissible_commands"])
         
         # Get our next action and value prediction.
-        outputs, indexes, values, probs = self.model(input_tensor, commands_tensor)
+        _, indexes, _, _ = self.model(input_tensor, commands_tensor)
         action = infos["admissible_commands"][indexes[0]]
         
         if done:
             self.model.reset_hidden(1)
-        return action, indexes[0].detach(), probs.squeeze()[indexes[0]].detach(), values.detach()
+            self.q1.reset_hidden(1)
+            self.q2.reset_hidden(1)
+        return action, indexes[0].detach()
 
     def get_probs(self, obs, infos, idx):
         # Build agent's observation: feedback + look + inventory.
@@ -115,8 +131,10 @@ class NeuralAgent:
         commands_tensor = self._process(infos["admissible_commands"])
         
         # Get our next action and value prediction.
-        outputs, indexes, values, probs = self.model(input_tensor, commands_tensor)
-        return probs.squeeze()[idx], values, probs
+        outputs, indexes, values, probs  = self.model(input_tensor, commands_tensor)
+        q1_val, _,_,_ = self.q1(input_tensor, commands_tensor)
+        q2_val,_,_,_ = self.q2(input_tensor, commands_tensor)
+        return values, probs, q1_val, q2_val
 
     def apply_updates(self, replay_buffer, NUM_UPDATES=2, EPS=0.2):
         for _i in range(NUM_UPDATES):
@@ -125,27 +143,40 @@ class NeuralAgent:
             avg_entropy_loss = []
             for episode in replay_buffer:
                 self.model.reset_hidden(1)
-                returns, advantages = self._discount_rewards(episode)
-                
+                self.q1.reset_hidden(1)
+                self.q2.reset_hidden(1)
                 policy_loss = 0
                 value_loss = 0
-                entropy_loss = 0
-                for step, ret, adv in zip(episode[:-1], returns, advantages):
-                    probs, values, all_probs = self.get_probs(step['obs'], step['infos'], step['command_id'])
-                    ratio = probs/step['prob']
-                    surr1 = ratio * adv
-                    surr2 = torch.clamp(ratio, 1.0 - EPS, 1.0 + EPS) * adv
-                    policy_surr = -torch.min(surr1, surr2)
-                    all_log_probs = torch.log(all_probs)
-                    policy_loss += policy_surr#-torch.log(probs)*adv #policy_surr
-                    value_loss += (ret - values)**2
-                    entropy_loss += (-all_probs * all_log_probs).sum()
+                q1_loss = 0
+                q2_loss = 0
+                data = []
+                for step in episode:
+                    values, all_probs, q1_val, q2_val = self.get_probs(step['obs'], step['infos'], step['command_id'])
+                    data.append({"values": values, "probs":all_probs.squeeze(), "q1_val": q1_val.squeeze(), "q2_val":q2_val.squeeze(),"reward":step["reward"]})
+                values, qvals = self._discount_rewards(data)
+
+                for step, value, qval, epi_step  in zip(data[:-1], values, qvals, episode):
+                    value_loss += F.mse_loss(step['values'],qval.detach())
+                    q1_loss += F.mse_loss(step['q1_val'][epi_step['command_id']], value.detach())
+                    q2_loss += F.mse_loss(step['q2_val'][epi_step['command_id']], value.detach())
+                    for qval, prob_action in zip(step["q1_val"],step["probs"]):
+                        policy_loss += prob_action*(qval.detach() - self.ALPHA*torch.log(prob_action))
+
                 self.optimizer.zero_grad()
+                self.optimizer_q1.zero_grad()
+                self.optimizer_q2.zero_grad()
                 avg_policy_loss.append(policy_loss.item())
                 avg_value_loss.append(value_loss.item())
-                avg_entropy_loss.append(entropy_loss.item())
-                loss = policy_loss + 0.25*value_loss - 0.1*entropy_loss
+                avg_entropy_loss.append((q1_loss+q2_loss).item())
+                loss = -1*policy_loss + 0.25*value_loss
                 loss.backward()
+                q1_loss.backward()
+                q2_loss.backward()
                 nn.utils.clip_grad_norm_(self.model.parameters(), 40)
+                nn.utils.clip_grad_norm_(self.q1.parameters(), 40)
+                nn.utils.clip_grad_norm_(self.q1.parameters(), 40)
+
+                self.optimizer_q1.step()
+                self.optimizer_q2.step()
                 self.optimizer.step()
-            print('avg_policy_loss:{}\tavg_value_loss:{}\tavg_entropy_loss:{}'.format(sum(avg_policy_loss)/len(avg_policy_loss), sum(avg_value_loss)/len(avg_value_loss), sum(avg_entropy_loss)/len(avg_entropy_loss)))
+            print('avg_policy_loss:{}\tavg_value_loss:{}\tavg_q_loss:{}'.format(sum(avg_policy_loss)/len(avg_policy_loss), sum(avg_value_loss)/len(avg_value_loss), sum(avg_entropy_loss)/len(avg_entropy_loss)))

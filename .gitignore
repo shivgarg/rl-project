@@ -2,3 +2,7 @@ venv
 games
 training_games
 __pycache__
+logs
+*.log
+pkl
+testing_games

@@ -58,23 +58,8 @@ def play(agent, path, max_step=100, nb_episodes=10, verbose=True):
             print(msg.format(np.mean(avg_moves), np.mean(avg_scores), infos["max_score"]))
 
 
-agent = NeuralAgent()
-play(agent, "./games/rewardsDense_goalDetailed.ulx")
-
-
-from time import time
-agent = NeuralAgent()
-
-print("Training")
-agent.train()  # Tell the agent it should update its parameters.
-starttime = time()
-play(agent, "./games/rewardsDense_goalDetailed.ulx", nb_episodes=500, verbose=False)  # Dense rewards game.
-print("Trained in {:.2f} secs".format(time() - starttime))
-
-agent.test()
-play(agent, "./games/rewardsDense_goalDetailed.ulx")
-
-os.system("seq 1 100 | xargs -n1 -P4 tw-make tw-simple --rewards dense --goal detailed --output training_games/ --seed")
+# Generate Training Games
+#os.system("seq 1 100 | xargs -n1 -P4 tw-make tw-simple --rewards dense --goal detailed --output training_games/ --seed")
 
 from time import time
 agent = NeuralAgent()
@@ -82,11 +67,10 @@ agent = NeuralAgent()
 print("Training on 100 games")
 agent.train()  # Tell the agent it should update its parameters.
 starttime = time()
-play(agent, "./training_games/", nb_episodes=100 * 5, verbose=False)  # Each game will be seen 5 times.
+play(agent, "./training_games/", nb_episodes=2000, verbose=False)  # Each game will be seen 5 times.
 print("Trained in {:.2f} secs".format(time() - starttime))
 
-os.system("seq 1 20 | xargs -n1 -P4 tw-make tw-simple --rewards dense --goal detailed --test --output testing_games/ --seed")
+#Generate Test Games
+#os.system("seq 1 20 | xargs -n1 -P4 tw-make tw-simple --rewards dense --goal detailed --test --output testing_games/ --seed")
 agent.test()
-play(agent, "./games/rewardsDense_goalDetailed.ulx")  # Averaged over 10 playthroughs.
 play(agent, "./testing_games/", nb_episodes=20 * 10)  # Averaged over 10 playthroughs for each test game.
-play(RandomAgent(), "./testing_games/", nb_episodes=20 * 10)

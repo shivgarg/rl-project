@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from model_baseline import CommandScorer
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = "cuda"
 
 class NeuralAgent:
     """ Simple Neural Agent for playing TextWorld games. """
@@ -29,7 +30,7 @@ class NeuralAgent:
         self.id2word = ["<PAD>", "<UNK>"]
         self.word2id = {w: i for i, w in enumerate(self.id2word)}
         
-        self.model = CommandScorer(input_size=self.MAX_VOCAB_SIZE, hidden_size=128)
+        self.model = CommandScorer(input_size=self.MAX_VOCAB_SIZE, hidden_size=128).to(device)
         self.optimizer = optim.Adam(self.model.parameters(), 0.00003)
         
         self.mode = "test"
@@ -122,7 +123,7 @@ class NeuralAgent:
             self.transitions[-1][0] = reward  # Update reward information.
         
         self.stats["max"]["score"].append(score)
-        if self.no_train_step % self.UPDATE_FREQUENCY == 0:
+        if done:#self.no_train_step % self.UPDATE_FREQUENCY == 0:
             # Update model
             returns, advantages = self._discount_rewards(values)
             

@@ -11,7 +11,7 @@ import re
 from collections import defaultdict
 
 from random_agent import RandomAgent
-from neural_agent_sac import NeuralAgent
+from neural_agent_sac_sep import NeuralAgent
 
 import torch
 import torch.nn as nn
@@ -72,7 +72,7 @@ def play(agent, path, max_step=100, nb_episodes=10, verbose=True):
         print('ep:{}\tlen:{}\tmax_score:{}\tavg_score:{}\tlast_score:{}'.format(no_episode, len(episode), max_score, sum(avg_score)/len(avg_score), score))
         if (no_episode+1)%UPDATE_FREQ == 0:
             agent.apply_updates(replay_buffer)
-            replay_buffer = replay_buffer[-20:]
+            replay_buffer = []
 
         if verbose:
             print(".", end="")
@@ -90,9 +90,6 @@ def play(agent, path, max_step=100, nb_episodes=10, verbose=True):
     
 
 os.system(' seq 1 100 | xargs -n1 -P4 tw-make tw-simple --rewards dense --goal detailed --output training_games/ --seed')
-
-
-
 
 from time import time
 agent = NeuralAgent()
